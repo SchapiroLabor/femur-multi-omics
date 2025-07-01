@@ -5,6 +5,7 @@ from skimage.util import img_as_float
 from skimage.exposure import rescale_intensity
 from skimage.util import img_as_float
 from tifffile import imwrite
+import pathlib
 
 def get_moment_features(img_arr):
     features={}
@@ -78,6 +79,7 @@ def register_arrays(fix,mov,mpp):
 
 def register_from_params(img_stack,transf_params,mpp,out_dir):
     no_of_channels=img_stack.shape[0]
+    out_dir.mkdir(parents=True, exist_ok=True)
     for ch in range(0,no_of_channels):
         channel=img_stack[ch,:,:]
         rot=transform.rotate(img_as_float(channel),
@@ -99,6 +101,7 @@ def register_from_params(img_stack,transf_params,mpp,out_dir):
             pass
         out_stack[ch,:,:]=registered_arr
         """
+
         itk.imwrite( registered,out_dir/ "ch-{x}_maldi_reg.tif".format(x=f"{ch:03d}"))
     #imwrite(out_dir/"maldi_stack_reg.tif",out_stack,photometric="minisblack")
     

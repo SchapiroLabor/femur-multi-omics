@@ -1,11 +1,11 @@
+#public libraries
 import pathlib
 from skimage.filters import threshold_otsu
-import scipy.ndimage as ndi
 from skimage import transform
-import itk
 import tifffile as tifff
 import numpy as np
 from skimage.transform import resize
+#local libraries
 import CLI
 import register_funcs
 

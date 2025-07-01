@@ -1,0 +1,12 @@
+name: multi-omics_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11.13
+  - tifffile=2025.6.11
+  - conda-forge::ome-types
+  - scikit-image=0.25.2
+  - pandas=2.2.2
+  - pip:
+    - itk-elastix=0.23.0
