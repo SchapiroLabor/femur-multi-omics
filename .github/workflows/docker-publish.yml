@@ -5,13 +5,9 @@ name: Docker
 # separate terms of service, privacy policy, and support
 # documentation.
 
-on:
-   push:
-      branches: [ "main" ]
-   #release:
-      #tags: ['*.*.*']
-   release: 
-      types: [published]
+on: #[push]
+    release: 
+        types: published
     #pull_request:
     #    branches: ["main"]
     
