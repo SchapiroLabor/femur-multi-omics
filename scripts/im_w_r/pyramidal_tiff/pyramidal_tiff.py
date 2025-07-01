@@ -4,6 +4,8 @@ from pathlib import Path
 import numpy as np
 import ome_writer
 import CLI
+from skimage import transform
+from skimage.exposure import rescale_intensity
 
 """
 def create_pyramid(img,sub_layers):
@@ -14,7 +16,7 @@ def create_pyramid(img,sub_layers):
     pyramid=pyramid_gaussian( img, max_layer=sub_layers, preserve_range=True,order=1,sigma=1)
     return pyramid
 """
-def write_pyramidal_tiff(imgs,sublayers,outdir,file_name,ome=False,ome_xml="",mpp=1):
+def write_pyramidal_tiff(imgs,sublayers,outdir,file_name,ome=False,ome_xml="",mpp=1,resize=False,res_dims=("","")):
     ref_img=tifff.imread(imgs[0])
     width=ref_img.shape[1]
     height=ref_img.shape[0]
@@ -45,6 +47,11 @@ def write_pyramidal_tiff(imgs,sublayers,outdir,file_name,ome=False,ome_xml="",mp
             #Read first layer and write it 
             first_layer=tifff.imread(img)
             ref_dtype=first_layer.dtype.name
+            ref_max=np.max(first_layer)
+            ref_min=np.min(first_layer)
+            if resize:
+                first_layer=transform.resize(first_layer,output_shape=res_dims,order=0,preserve_range=True)
+                first_layer=rescale_intensity(first_layer,out_range=(ref_min,ref_max)).astype(ref_dtype)
 
             tif.write(
             first_layer,
@@ -55,7 +62,7 @@ def write_pyramidal_tiff(imgs,sublayers,outdir,file_name,ome=False,ome_xml="",mp
             photometric='minisblack'
                     )
             # Create pyramid
-            pyramid=pyramid_gaussian( first_layer, max_layer=sublayers, preserve_range=True,order=1,sigma=1)
+            pyramid=pyramid_gaussian( first_layer, max_layer=sublayers, preserve_range=True,order=0,sigma=0)
             # Skip first/original layer of the pyramid
             next(pyramid)
             # Write sub-layers in file
@@ -78,7 +85,7 @@ def write_pyramidal_tiff(imgs,sublayers,outdir,file_name,ome=False,ome_xml="",mp
 
 def main():
     args = CLI.get_args()
-    
+
     #write_pyramidal_tiff(imgs,sublayers,outdir,file_name,ome=False,ome_xml="")
     write_pyramidal_tiff(
                         list( sorted( (args.input).glob("*.tif") ) ),
@@ -87,12 +94,11 @@ def main():
                         args.stack_name,
                         args.ome_format,
                         args.ome_xml,
-                        args.microns_per_pixel
+                        args.microns_per_pixel,
+                        args.resize_input,
+                        tuple(args.resize_dimensions)
                         )
     
-
-
-
 if __name__ == '__main__':
     main()
 

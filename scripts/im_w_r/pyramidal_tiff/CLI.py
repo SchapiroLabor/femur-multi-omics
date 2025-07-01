@@ -52,5 +52,19 @@ def get_args():
                     help='custom ome-xml string containing the metadata. If nothing is passed a minimal metadata will be created'
                     )
     
+    parser.add_argument('-res',
+                    '--resize_input',
+                    action='store_true',
+                    help='flag to resize the input image'
+                    )
+    
+    parser.add_argument('-rdim',
+                    '--resize_dimensions',
+                    action='extend',
+                    nargs=2,
+                    type=int,
+                    help='two-entry tuple with yx dimensions, i.e. size of height & width '
+                    )
+    
     args=parser.parse_args()
     return args

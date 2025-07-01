@@ -73,6 +73,7 @@ def register_arrays(fix,mov,mpp):
     
     transform_log["rigid"]=result_transform_parameters
 
+
     return registered_mov_img,transform_log
 
 def register_from_params(img_stack,transf_params,mpp,out_dir):
@@ -89,14 +90,17 @@ def register_from_params(img_stack,transf_params,mpp,out_dir):
         rot_itk=itk.GetImageFromArray(rot)
         rot_itk.SetSpacing([mpp,mpp])
         registered=itk.transformix_filter(rot_itk,transf_params["rigid"])
+
+        """
         registered_arr=itk.GetArrayFromImage(registered)
-        #itk.imwrite(registered, "rot_rigid_{x}.tif".format(x=f"{ch:02d}"))
         if ch==0:
             out_stack=np.zeros((no_of_channels,)+registered_arr.shape,dtype=registered_arr.dtype)
         else:
             pass
         out_stack[ch,:,:]=registered_arr
-    imwrite(out_dir/"maldi_stack_reg.tif",out_stack,photometric="minisblack")
+        """
+        itk.imwrite( registered,out_dir/ "ch-{x}_maldi_reg.tif".format(x=f"{ch:03d}"))
+    #imwrite(out_dir/"maldi_stack_reg.tif",out_stack,photometric="minisblack")
     
 
 
