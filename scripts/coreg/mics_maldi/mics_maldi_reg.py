@@ -1,5 +1,5 @@
 #public libraries
-import pathlib
+from pathlib import Path
 from skimage.filters import threshold_otsu
 from skimage import transform
 import tifffile as tifff
@@ -75,7 +75,8 @@ def main():
                                mpp_mics,
                                mpp_maldi
                                )
-    
+    #tifff.imwrite(Path(r"C:\Users\VictorP\repos\femur-multi-omics\output") / "resized_mics.tif",mics_resized,photometric="minisblack")
+ 
     maldi_ref_img=tifff.imread(args.input_maldi,key=chan_maldi)
     maldi_registered,trfm_log=register_funcs.register_arrays(mics_resized,maldi_ref_img,mpp_maldi)
     maldi_stack=tifff.imread(args.input_maldi)
