@@ -45,15 +45,10 @@ def extract_and_resize(tiff_stack_path,ch_index,mpp_src=None,mpp_target=None):
         target_dim=[int(element) for element in target_dim]
         nearest_lvl_index=np.argmin( np.abs( [target_dim[0]-element[0] for element in coll_xy_dim] ) )
 
-        with tifff.TiffFile(tiff_stack_path) as tif:
-            img_aux=tif.series[0].levels[nearest_lvl_index]
-            dim=img_aux.shape
-            img_type=img_aux.dtype.name
-            if len(dim)==3:
-                img_aux=img_aux[ch_index,:,:]
-            elif len(dim)==2:
-                pass
-            output_img=resize(img_aux.asarray(),output_shape=target_dim,order=1,preserve_range=True).astype(img_type)
+        img_aux=tifff.imread(tiff_stack_path,series=0,key=ch_index,level=nearest_lvl_index)
+        img_type=img_aux.dtype.name
+        #output_img=resize(img_aux.asarray(),output_shape=target_dim,order=1,preserve_range=True).astype(img_type)
+        output_img=resize(img_aux,output_shape=target_dim,order=1,preserve_range=True).astype(img_type)
 
     return output_img
 
@@ -68,7 +63,6 @@ def main():
     mpp_maldi=args.pixel_size_microns_maldi
     chan_mics=args.reference_indices_mics
     chan_maldi=args.reference_indices_maldi
-
 
     mics_resized=extract_and_resize(args.input_mics,
                                chan_mics,
