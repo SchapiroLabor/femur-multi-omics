@@ -99,11 +99,11 @@ def register_references(fixed_1,fixed_2,moving,mpp,outdir,ch_index):
     init_transform_dir=trf_params_dir / "00_rotation"
     init_transform_dir.mkdir(exist_ok=True,parents=True)
 
-    with open(init_transform_dir /'TransformParameters.0.txt', 'w', encoding='utf-8') as f:
-        f.write(f"angle ({d_theta}) [deg]")
+    #with open(init_transform_dir /'TransformParameters.0.txt', 'w', encoding='utf-8') as f:
+    #   f.write(f"angle ({d_theta}) [deg]")
 
     moving_rot=transform.rotate(img_as_float32(moving),angle=d_theta,resize=True,preserve_range=True,order=0)
-    tifff.imwrite(init_transform_dir/ "result.tif",moving_rot,photometric="minisblack")
+    #tifff.imwrite(init_transform_dir/ "result.tif",moving_rot,photometric="minisblack")
     #moving_rot=rescale_intensity(moving_rot,out_range=(np.min(moving),np.max(moving))).astype(moving.dtype.name)
     
 
