@@ -8,6 +8,7 @@ from skimage.transform import resize
 from skimage.util import img_as_float32
 from skimage.exposure import rescale_intensity
 import itk
+import os
 #local libraries
 import CLI
 
@@ -77,8 +78,9 @@ def extract_and_resize(tiff_stack_path,ch_index,mpp_src=None,mpp_target=None):
 
 def register_references(fixed_1,fixed_2,moving,mpp,outdir,ch_index):
     transform_log={}
-    trf_params_dir=Path().cwd() / "maps" /"transforms"
-    reg_params_dir=Path().cwd() / "maps" /"registrations"
+    workdir=os.path.dirname(__file__)
+    trf_params_dir=workdir / "maps" /"transforms"
+    reg_params_dir=workdir / "maps" /"registrations"
     qc_dir=outdir / "qc"
     qc_dir_imgs=qc_dir/"imgs"
     (qc_dir_imgs).mkdir(exist_ok=True,parents=True)
