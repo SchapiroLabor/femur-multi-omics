@@ -1,6 +1,8 @@
 #public libraries
 from pathlib import Path
 from skimage import transform
+import itertools
+import pandas as pd
 from skimage.transform import pyramid_gaussian
 import tifffile as tifff
 import numpy as np
@@ -9,6 +11,7 @@ from skimage.util import img_as_float32
 from skimage.exposure import rescale_intensity
 import itk
 import os
+from types import GeneratorType
 #local libraries
 import CLI
 
@@ -21,12 +24,58 @@ def is_pyramid(img_path):
     """
     
     with tifff.TiffFile(img_path) as tif:
-        pyramid=len(tif.series[0].levels) > 1
-    return pyramid
+        levels=len(tif.series[0].levels)
+        pyramid=levels > 1
+    return pyramid,levels
 
-def get_moment_features(img_arr):
+
+def extract_img_props(img_path,pixel_size):
+
+    #Checks if image has pyramidal levels
+    with tifff.TiffFile(img_path) as tif:
+        pyr_levels=len(tif.series[0].levels)
+        is_pyramid=pyr_levels > 1
+        data_type=tif.series[0].dtype.name
+        height,width=tif.series[0].shape[-2::]
+    
+    img_props={"pixel_size":pixel_size,
+               "pixel_size_unit":"µm",
+               "data_type":data_type,
+               "pyramid":is_pyramid,
+               "levels":pyr_levels,
+               "size_x":width,
+               "size_y":height ,
+               "bits": "16"
+               }
+    
+    return img_props
+
+def extract_maldi_names(maldi_info):
+    
+    with open(maldi_info, 'r') as file:
+        content=file.readlines()
+        total_lines=len(content)
+        for n,line in enumerate(content):
+            if "m/z" in line:
+                init_line=n+1
+                break
+    print("init_line:",init_line)
+    maldi_ch_names=[ element.split(";")[0] for element in content[init_line:total_lines] ]
+
+    return maldi_ch_names
+        
+
+
+
+def get_moment_features(img_arr,mpp):
     features={}
-    moments = itk.ImageMomentsCalculator.New(itk.GetImageFromArray(img_arr))
+    img=itk.GetImageFromArray(img_arr)
+    img.SetSpacing([mpp,mpp])
+    width_units=mpp*np.array(itk.size(img))[0]
+    height_units=mpp*np.array(itk.size(img))[1]
+    width_pix=np.array(itk.size(img))[0]
+    height_pix=np.array(itk.size(img))[1]
+    moments = itk.ImageMomentsCalculator.New(img)
     moments.Compute()
     principal_axis=itk.array_from_matrix(moments.GetPrincipalAxes())
     minor_axis=principal_axis[0]
@@ -36,14 +85,41 @@ def get_moment_features(img_arr):
     y_min=minor_axis[1]
     x_max=major_axis[0]
     y_max=major_axis[1]
-    
 
-    features["centroid"]=tuple(moments.GetCenterOfGravity())
+    
+    centroid=tuple(moments.GetCenterOfGravity())
+    #centroid x,y, with origin on top left corner (y inverted)
+    features["centroid_XinvY"]=(centroid[0],centroid[1])
+    features["centroid_pixels"]=(centroid[0]//mpp,centroid[1]//mpp)
+    #centroid x,y with origin on bottom left corner (standard axis)
+    features["centroid_XY"]=(centroid[0],height_units-centroid[1])
     features["major_ax"]=major_axis
     features["minor_ax"]=minor_axis
     features["major_ax_or"]=np.arctan(x_max/y_max)#[radians]relative to y+ axis clockwise (/) negative, counterclowise (\) positive
     features["minor_ax_or"]=np.arctan(x_min/y_min)
+    features["size"]=[width_pix,height_pix]
     return features
+
+def get_crop_params(width,height,Transform):
+
+    corners = np.array([[0, 0], 
+                    [0, height- 1], 
+                    [width - 1, height - 1], 
+                    [width - 1, 0]
+                    ]
+                )
+    
+    corners_ = np.rint(Transform.inverse(corners))
+    min_x = corners_[:, 0].min()
+    min_y = corners_[:, 1].min()
+    max_x = corners_[:, 0].max()
+    max_y = corners_[:, 1].max()
+    out_rows = max_y - min_y + 1
+    out_cols = max_x - min_x + 1
+    output_shape = np.rint([out_cols,out_rows]).astype("int")
+    translation_offset=[int(min_x), int(min_y)]
+
+    return output_shape,translation_offset 
 
 
 
@@ -72,7 +148,7 @@ def extract_and_resize(tiff_stack_path,ch_index,mpp_src=None,mpp_target=None):
 
         img_aux=tifff.imread(tiff_stack_path,series=0,key=ch_index,level=nearest_lvl_index)
         img_type=img_aux.dtype.name
-        output_img=resize(img_aux,output_shape=target_dim,order=1,preserve_range=True).astype(img_type)
+        output_img=resize(img_aux,output_shape=target_dim,order=0,preserve_range=True).astype(img_type)
 
     return output_img
 
@@ -129,7 +205,7 @@ def register_references(fixed_1,fixed_2,moving,mpp,outdir,ch_index):
     for fix,reg_file,trf_outdir in zip(fixed_itk,reg_params_files,trf_params_outdir):
         params_obj=itk.ParameterObject.New()
         params_obj.AddParameterFile(str(reg_file))
-        
+
         moving_itk,result_trf_params = itk.elastix_registration_method(
         fix, 
         moving_itk,
@@ -145,6 +221,129 @@ def register_references(fixed_1,fixed_2,moving,mpp,outdir,ch_index):
 
     return transform_log
 #TODO: re-write this whole function as an python generator
+
+def apply_init_transform(fix,moving,mpp,template_file):
+    mofix=get_moment_features(fix,mpp)
+    momov=get_moment_features(moving,mpp)
+
+    theta=mofix["major_ax_or"]-momov["major_ax_or"]                                 
+    xc,inv_yc=momov["centroid_XinvY"]#centroid with inverted-y
+    xc_pixels,inv_yc_pixels=momov["centroid_pixels"]
+    #Calculate dimensions of output image after initial transformation
+    width,height=momov["size"]
+    tr1=transform.EuclideanTransform(rotation=theta,translation=(xc_pixels,inv_yc_pixels))
+    tr2=transform.EuclideanTransform(translation=(-xc_pixels,-inv_yc_pixels))
+    Transform=tr2+tr1 #T is the matrix producing the rotation around centroid
+    outsize,offset=get_crop_params(width,height,Transform)
+    x_offset= mpp*offset[0]
+    y_offset= -mpp*offset[1]
+    #Use Transformix parameter map to apply the initial transform
+    transform_map=itk.ParameterObject.New()
+    transform_map.ReadParameterFile(str(template_file))
+
+    transform_map.SetParameter(0,"Transform",["EulerTransform"])
+    transform_map.SetParameter(0,"NumberOfParameters",["3"])
+    #CenterofRotation arguments are x,y in units with y value in inverted y-axis
+    transform_map.SetParameter(0,"CenterOfRotationPoint",[ str(xc) , str(inv_yc) ])
+    transform_map.SetParameter(0,"TransformParameters", [ str(theta),str( y_offset), str(x_offset)])
+    transform_map.SetParameter(0,"Size", [str(val) for val in outsize ])
+    transform_map.SetParameter(0,"Spacing",[str(mpp),str(mpp)])
+    transform_map.SetParameter(0,"Origin",["0","0"])
+
+    mov_itk=itk.GetImageFromArray( img_as_float32(moving) )
+    mov_itk.SetSpacing([mpp,mpp])
+    transformed_image=itk.transformix_filter(mov_itk,transform_map,log_to_console=False)
+
+
+    return transformed_image,transform_map
+
+
+def register_references2(fixed_1,fixed_2,moving,mpp,qc_dir):
+    #Define variables
+    transform_scheme=["00_init","01_rigid","02_affine"]
+    global_trf_map=itk.ParameterObject.New()
+    workdir=Path( os.path.dirname(__file__) )
+    transform_template=workdir /"maps"/"transforms" /"template"/"TransformParameters.0.txt"
+    registration_maps=sorted( (workdir / "maps" / "registrations").glob("*.txt") )
+    out_transform_dir=qc_dir / "transforms"
+
+    qc_out=[]
+
+    for element in transform_scheme:
+        aux=out_transform_dir / element
+        aux.mkdir(exist_ok=True,parents=True)
+        qc_out.append(aux)
+        
+    fix_itk=[]
+    for img in [fixed_1,fixed_2]:
+        aux=itk.GetImageFromArray(img_as_float32(img))
+        aux.SetSpacing([mpp,mpp])
+        fix_itk.append(aux)
+    #Initial transformation to align the principal axis
+    #mov_updated below is already an itk image with the mpp spacing
+    mov_updated,transform_map=apply_init_transform(fixed_1,moving,mpp,transform_template)
+
+    transform_map.WriteParameterFile(transform_map.GetParameterMap(0),
+                                     str(qc_out[0] / "TransformParameters.0.txt")
+                                     )
+    
+    itk.imwrite(mov_updated,qc_out[0] / "init.tif")
+    
+    global_trf_map.AddParameterMap(transform_map.GetParameterMap(0))
+
+    for Fix,Reg,Out in zip(fix_itk,registration_maps,qc_out[1::]):
+        reg_map=itk.ParameterObject.New()
+        reg_map.AddParameterFile(str(Reg))
+
+        mov_updated,result_trf_params = itk.elastix_registration_method(
+            Fix, 
+            mov_updated,
+            parameter_object=reg_map,
+            output_directory=str(Out),
+            log_file_name="log.txt",
+            log_to_console=False
+        )
+
+        global_trf_map.AddParameterMap(result_trf_params.GetParameterMap(0))
+
+    return global_trf_map
+
+def apply_transform2(img_path,transform_map,mpp_mics,mpp_maldi,upscaled_size=None):
+    #index of last transformation map
+
+    no_of_transforms=transform_map.GetNumberOfParameterMaps()
+
+    if upscaled_size==None:
+        pass
+    else:
+
+        last_index=no_of_transforms-1
+        src_mpp=np.array([mpp_maldi,mpp_maldi])
+        src_origin=np.array([0,0])
+        target_mpp=np.array([mpp_mics,mpp_mics])
+        target_origin=(0.5*target_mpp)+src_origin-(0.5*src_mpp)
+        transform_map.SetParameter(last_index,"Size", [str(upscaled_size[1]),str(upscaled_size[0])])
+        transform_map.SetParameter(last_index,"Spacing", [str(value) for value in target_mpp])
+        transform_map.SetParameter(last_index,"Origin", [str(value) for value in target_origin])
+    
+    itk_imgs=[]
+
+    with tifff.TiffFile(img_path) as tif:
+        for channel in tif.pages:
+            aux=itk.GetImageFromArray( channel.asarray() )
+            aux.SetSpacing([mpp_maldi,mpp_maldi])
+            itk_imgs.append(aux)
+
+    for ch in itk_imgs:
+        result=ch
+        for n in range(no_of_transforms):
+            single_transform=itk.ParameterObject.New()
+            single_transform.AddParameterMap(transform_map.GetParameterMap(n))
+            result=itk.transformix_filter(result,single_transform,log_to_console=False)
+        yield itk.GetArrayFromImage( result )
+
+    
+
 def apply_transform(img,transform_log,mpp_mics,mpp_maldi,upscaled_shape=None):
     # Save original intensity values
     minimum=np.min(img)
@@ -194,6 +393,7 @@ def create_pyramid(mics_path,
 
     outdir.mkdir(parents=True, exist_ok=True)
     out_file_path= outdir / f'{file_name}.tif'
+
     with tifff.TiffFile(mics_path) as tif:
         sublayers=len(tif.series[0].levels)-1
     sublayers_idx=range(1,sublayers+1)
@@ -252,42 +452,166 @@ def create_pyramid(mics_path,
                 
     #tifff.tiffcomment(out_file_path, ome_xml)
 
+def create_pyramid2(img_instances,
+                    levels,
+                    outdir,
+                    file_name,
+                    img_data_type
+                    ):
 
+    outdir.mkdir(parents=True, exist_ok=True)
+    out_file_path= outdir / f'{file_name}.tif'
+
+    #
+    types=[]
+    for element in img_instances:
+
+        if isinstance(element, GeneratorType):
+
+            types.append("generator")
+
+        elif isinstance(element, Path):
+
+            types.append("path")
+
+        else:
+
+            types.append("other")
+    
+    #
+    pyramid_levels=[]
+    for path,element in zip(img_instances,types):
+
+        if element=="path":
+
+            pyramid_levels.append( is_pyramid(path)[1] )
+
+        else:
+
+            pyramid_levels.append(1)
+
+    #
+    unfolded_instances=[]  
+    for INST,TYPE,LEVL in zip(img_instances,types,pyramid_levels):
+        
+        if TYPE=="path":
+            deficit=levels-LEVL
+            aux_path=INST
+            print(deficit)
+            with tifff.TiffFile(aux_path) as tif:
+                no_channels=len(tif.pages)
+
+            for ch_idx in range(no_channels):
+                if deficit==0:
+                    unfolded_instances.append( (tifff.imread(aux_path,series=0,key=ch_idx,level=L) for L in range( abs(LEVL) ) ) )
+
+                elif deficit<0:
+                    unfolded_instances.append( (tifff.imread(aux_path,series=0,key=ch_idx,level=L) for L in range(levels) ) )
+
+                elif deficit>0:
+                    aux_1=(tifff.imread(aux_path,series=0,key=ch_idx,level=L) for L in range(LEVL) )
+                    aux_2=pyramid_gaussian( tifff.imread(aux_path,series=0,key=ch_idx,level=LEVL-1), max_layer=deficit, preserve_range=True,order=1,sigma=1)
+                    next(aux_2)
+                    unfolded_instances.append(itertools.chain(aux_1,aux_2))
+
+        if TYPE=="generator":
+            for channel in INST:
+                unfolded_instances.append( pyramid_gaussian( channel  , max_layer=levels-1, preserve_range=True,order=1,sigma=1) )
+
+    
+    sublayers=levels-1
+    with tifff.TiffWriter(out_file_path, ome=False, bigtiff=True) as tif:
+        #write first the original resolution image,i.e. first layer
+        for img_generator in unfolded_instances:
+            for layer,img_layer in enumerate(img_generator):
+                if layer==0:
+                    tif.write(
+                        img_layer.astype(img_data_type),
+                        description="",
+                        subifds=sublayers,
+                        metadata=False,  # do not write tifffile metadata
+                        tile=(256, 256),
+                        photometric='minisblack'
+                        )
+                elif layer>0:
+                    tif.write(
+                        img_layer.astype(img_data_type),
+                        subfiletype=1,
+                        metadata=False,
+                        tile=(256, 256),
+                        photometric='minisblack',
+                        compression="lzw"#lzw works better when saving channel-by-channel and jpeg 2000 when saving the whole stack at once
+                        )
+                
+    #tifff.tiffcomment(out_file_path, ome_xml)
 
 
 def main():
 
+    #Collect arguments
     args = CLI.get_args()
     mics_stack_path=args.input_mics
     maldi_stack_path=args.input_maldi
-    output_dir=args.output_dir
     mpp_mics=args.pixel_size_microns_mics
     mpp_maldi=args.pixel_size_microns_maldi
     chan_mics=args.reference_indices_mics
     chan_maldi=args.reference_indices_maldi
+    file_info_mics=args.marker_names_mics
+    file_info_maldi=args.marker_names_maldi
+    output_dir=args.output_dir
+    #Initialize variables & functions
+    qc_dir= output_dir / "qc_coreg"
 
-    #Extract MICS (fixed) and MALDI(moving) channels to be used for registration
-    mics=[]
+    qc_dir.mkdir(parents=True,exist_ok=True)
+
+    dst_info=extract_img_props(mics_stack_path,mpp_mics)
+
+    mics_dimensions=(dst_info["size_y"],dst_info["size_x"])
+
+    mics_names=pd.read_csv(file_info_mics)["marker_name"].tolist()
+
+    maldi_names=extract_maldi_names(file_info_maldi)
+
+    channel_names=mics_names + maldi_names
+    #Extract MICS (fixed image(s)) and MALDI(moving image) channels to be used for registration
     maldi=tifff.imread(maldi_stack_path,series=0,key=chan_maldi)
-    with tifff.TiffFile(mics_stack_path) as tif:
-        mics_dimensions=tif.series[0].pages[0].shape
-    
+    mics=[]
+        #Resize of MICS image to match pixel size of MALDI (downscale expected)
     for index in chan_mics:
         mics_resized=extract_and_resize(mics_stack_path,
                                     index,
                                     mpp_mics,
                                     mpp_maldi
                                     )
+        print(mics_resized.shape)
         mics.append(mics_resized)
-    #Extract transforms by using only the reference channels in MICS and MALDI
-    transf_log=register_references(mics[0],
+    #Extract transforms (transformation map) by using only the reference channels in MICS and MALDI
+    transformations_map=register_references2(
+                        mics[0],
                         mics[1],
                         maldi,
                         mpp_maldi,
-                        output_dir,
-                        chan_mics+[chan_maldi]
+                        qc_dir
                         )
     
+    generator=apply_transform2(maldi_stack_path,transformations_map,mpp_mics,mpp_maldi)#,mics_dimensions)
+    out_test=Path(r"C:\Users\VictorP\repos\femur_data\output")
+    for n,img in enumerate(generator):
+        #itk.imwrite(img,out_test / f"maldi_{n:03d}.tif")
+        tifff.imwrite(out_test / f"maldi_{n:03d}.tif",img,photometric="minisblack")
+
+    """
+
+    create_pyramid2([mics_stack_path,generator],
+                    9,
+                    out_test,
+                    "integrated",
+                    "uint16"
+                    )
+
+    """
+
+    """
     create_pyramid(mics_stack_path,
                     maldi_stack_path,
                     output_dir,
@@ -297,11 +621,20 @@ def main():
                     mpp_maldi,
                     mics_dimensions)
     
-    """
+    
     with tifff.TiffFile(maldi_stack_path) as tif:
         for n,page in enumerate(tif.pages):
             result=apply_transform(page.asarray(),transform_log,mpp_mics,mpp_maldi,upscaled_shape=mics_dimensions)
             tifff.imwrite(output_dir /f"{n}.tif",result,photometric="minisblack")
+
+    #Write metadata in OME format into the pyramidal file
+    channel_names=markers_updated["marker_name"].tolist()
+    ome_xml=ome_writer.create_ome(channel_names,src_props,version)
+    tifff.tiffcomment(pyramid_abs_path, ome_xml.encode("utf-8"))
+
+    #Write updated markers.csv
+    markers_updated = markers_updated.drop(columns=['keep','ind','processed','factor','bg_idx'])
+    markers_updated .to_csv(args.markerout, index=False)
     """
 
 if __name__ == '__main__':

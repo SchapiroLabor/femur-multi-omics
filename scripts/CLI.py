@@ -47,8 +47,17 @@ def get_args():
                     metabolite from the maldi image (see -idxma argument).
                     """
                     )
-
-
+    
+    parser.add_argument('-markmi',
+                    '--marker_names_mics',
+                    required=True,
+                    type=pathlib.Path,
+                    help="""
+                    .csv file with a column named "marker_name" containing the name of the channels of the mics stack (-inmi).
+                    The occurrence of the names in this column should match the order of occurrence in the mics stack. 
+                    """
+                    )
+    
     parser.add_argument('-inma',
                     '--input_maldi',
                     required=True,
@@ -69,6 +78,16 @@ def get_args():
                     required=True,
                     type=int,
                     help="0-based index of the reference channel in the maldi stack "
+                    )
+    
+    parser.add_argument('-markma',
+                    '--marker_names_maldi',
+                    required=True,
+                    type=pathlib.Path,
+                    help="""
+                    .txt file with a column named "m/z" containing the mass-to-charge ratio of the maldi stack (-inma).
+                    The occurrence of the ratio in this column should match the order of occurrence in the maldi stack. 
+                    """
                     )
     
 
