@@ -11,7 +11,7 @@ def create_ome(conformed_markers,info,software_version):
     Returns:
         str: OME-XML file.
     """
-    software=f'backsub {software_version}'
+    software=f'coreg {software_version}'
     no_of_channels = len(conformed_markers)
     tile_info_dict={
             "tile": no_of_channels *[1],
