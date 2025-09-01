@@ -1,6 +1,8 @@
 # Python module to register image stacks of fluorescence microscopy and maldi images from the same sample
 
 The main script is found in ./scripts/register.py.  This has a CLI documented below.  The workflow of the registration requires the selection of one MALDI channel and two channels of the fluorescence image,i.e. a "dense" marker, usually DAPI, and a "fiducial" marker,i.e. a more disperse and particle-like marker.  The MALDI channel should co-localize as much as possible with the fiducial marker in the fluorescence stack.
+The output of this tool is an ome.tif file with the registered MACsima and MALDI images.  The MALDI images in this file are upscaled to the same pixel size of the MACsima data.
+
 # Usage
 ## via python
 - (1) Download the [./scripts](https://github.com/SchapiroLabor/femur-multi-omics/tree/main/scripts) folder
@@ -35,7 +37,21 @@ In the example above we suppose the dense marker in the MACSima images is in the
 ```
 singularity pull docker://ghcr.io/schapirolabor/femur-multi-omics:v1.5.0
 ```
-- (2) Execute the register.py inside the container.  register.py is inside the folder /tools of the container.
+This will download a container named femur-multi-omics:v1.5.0.sif
+
+- (2) Execute the register.py script inside the /tools folder in the .sif container.  Be aware of two things in the example below,(a) the variables mnt, media and tools are names of folders inside the container and need no editing in the example below. (b) We suppose that the macsima and maldi stacks and associated .csv information is in a local directory *input_directory*, while the output of the script will be written in a different local directory *output_directory*.
+
+Example:
+
+```
+singularity exec --bind *input_directory*:/mnt,*output_directory*:/media  --no-home femur-multi-omics:v1.5.0.sif python /tools/register.py -o /media  -inmi mnt/*macsima_stack.tif* \
+-mppmi *0.170* -idxmi *0* *4* -markmi mnt/*markers.csv* -inma mnt/*maldi_stack.tif* \
+-mppma *5* -idxma *10* -markma mnt/*maldi_markers.csv* 
+```
+
+See also an example of the implementation above inside a bash script in [coreg.sh](https://github.com/SchapiroLabor/femur-multi-omics/blob/main/coreg.sh).
+
+
 
 ## CLI
 The main script is ./scripts/register.py
