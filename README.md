@@ -1,4 +1,4 @@
-# Python module to register image stacks of fluorescence microscopy and maldi images from the same sample
+# Python scripts to register multi-channel fluorescence microscopy and maldi images
 
 The main script is found in ./scripts/register.py.  This has a CLI documented below.  The workflow of the registration requires the selection of one MALDI channel and two channels of the fluorescence image,i.e. a "dense" marker, usually DAPI, and a "fiducial" marker,i.e. a more disperse and particle-like marker.  The MALDI channel should co-localize as much as possible with the fiducial marker in the fluorescence stack.
 The output of this tool is an ome.tif file with the registered MACsima and MALDI images.  The MALDI images in this file are upscaled to the same pixel size of the MACsima data.
@@ -51,16 +51,12 @@ singularity exec --bind *input_directory*:/mnt,*output_directory*:/media  --no-h
 
 See also an example of the implementation above inside a bash script in [coreg.sh](https://github.com/SchapiroLabor/femur-multi-omics/blob/main/coreg.sh).
 
-
-
 ## CLI
 The main script is ./scripts/register.py
 You can visualize in your terminal the CLI documentation using the following command
 ```
 python register.py --help
 ```
-
-
 ### Required arguments
 | Argument|Long name|Type|Description|Default value|
 |---------|---------|----|-----------|-------------|
