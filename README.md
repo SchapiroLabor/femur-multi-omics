@@ -21,7 +21,9 @@ or check the CLI documentation below.
 
 - (6) Execute register.py with your correspondent entries for the CLI, for example:
 ```
-python {local_directory}/register.py -o *output_directory*  -inmi *macsima_stack.tif* -mppmi *0.170* -idxmi *0* *4* -markmi *markers.csv* -inma *maldi_stack.tif* -mppma *5* -idxma *10* -markma *maldi_markers.csv* 
+python *local_directory*/register.py -o *output_directory*  -inmi *macsima_stack.tif* \
+-mppmi *0.170* -idxmi *0* *4* -markmi *markers.csv* -inma *maldi_stack.tif* \
+-mppma *5* -idxma *10* -markma *maldi_markers.csv* 
 ```
 In the example above we suppose the dense marker in the MACSima images is in the channel with index 0 and the fiducial marker is in channel 4.  The latter marker is associated to channel 10 of the maldi stack.
 
@@ -36,7 +38,7 @@ singularity pull docker://ghcr.io/schapirolabor/femur-multi-omics:v1.5.0
 - (2) Execute the register.py inside the container.  register.py is inside the folder /tools of the container.
 
 ## CLI
-The main script is to be found in ./scripts/register.py
+The main script is ./scripts/register.py
 You can visualize in your terminal the CLI documentation using the following command
 ```
 python register.py --help
